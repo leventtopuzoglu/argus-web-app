@@ -11,12 +11,13 @@ import {
   Sparkles, 
   Send, 
   Wallet, 
-  LogIn, 
+  Mail, 
   LogOut,
   Download,
   Flame,
   Lock,
-  Layers
+  Layers,
+  CheckCircle2
 } from 'lucide-react';
 
 interface Product {
@@ -49,6 +50,12 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'radar' | 'transparency'>('radar');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
+  // Magic Link Giriş Durumları
+  const [emailInput, setEmailInput] = useState('');
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+
   useEffect(() => {
     // 1. PWA Yükleme Yakalayıcısı
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -56,11 +63,23 @@ export default function Home() {
       setInstallPrompt(e);
     });
 
-    // 2. Oturum Kontrolü (Google Auth)
+    // 2. Oturum Kontrolü & Değişiklik Dinleyicisi
     checkAuthSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        await syncUserProfile(session.user.id, session.user.email, session.user.user_metadata?.full_name);
+      } else {
+        setCurrentUser(null);
+      }
+    });
 
     // 3. Ürünleri Çek
     loadProducts();
+
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
 
   async function checkAuthSession() {
@@ -71,12 +90,14 @@ export default function Home() {
   }
 
   async function syncUserProfile(authId: string, email?: string, fullName?: string, wallet?: string) {
-    const { data, error } = await supabase
+    const displayName = fullName || (email ? email.split('@')[0] : (wallet ? `${wallet.slice(0, 6)}...${wallet.slice(-4)}` : 'Anonim Küratör'));
+    
+    const { data } = await supabase
       .from('users')
       .upsert({
         auth_id: authId,
         email: email || null,
-        full_name: fullName || (wallet ? `${wallet.slice(0, 6)}...${wallet.slice(-4)}` : 'Anonim Küratör'),
+        full_name: displayName,
         wallet_address: wallet || null,
         last_active: new Date().toISOString()
       }, { onConflict: 'auth_id' })
@@ -96,17 +117,34 @@ export default function Home() {
     if (data) setProducts(data);
   }
 
-  // Google ile Giriş
-  async function handleGoogleLogin() {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
+  // MAGIC LINK İLE GİRİŞ FONKSİYONU
+  async function handleSendMagicLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!emailInput.trim() || !emailInput.includes('@')) {
+      alert('Lütfen geçerli bir e-posta adresi girin.');
+      return;
+    }
+
+    setAuthLoading(true);
+    const redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    
+    const { error } = await supabase.auth.signInWithOtp({
+      email: emailInput.trim(),
       options: {
-        redirectTo: typeof window !== 'undefined' ? window.location.origin : ''
-      }
+        emailRedirectTo: redirectUrl,
+      },
     });
+
+    setAuthLoading(false);
+
+    if (error) {
+      alert('Hata: ' + error.message);
+    } else {
+      setMagicLinkSent(true);
+    }
   }
 
-  // Web3 Cüzdan ile Giriş (MetaMask / Rabby / Browser Wallet)
+  // Web3 Cüzdan ile Giriş
   async function handleWalletLogin() {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
       try {
@@ -117,11 +155,11 @@ export default function Home() {
         alert('Cüzdan bağlantısı reddedildi.');
       }
     } else {
-      alert('Tarayıcınızda MetaMask veya Web3 cüzdanı bulunamadı. Lütfen Google ile giriş yapın.');
+      alert('Tarayıcınızda Web3 cüzdanı bulunamadı. Lütfen E-posta ile giriş yapın.');
     }
   }
 
-  // Çıkış
+  // Çıkış Yap
   async function handleLogout() {
     await supabase.auth.signOut();
     setCurrentUser(null);
@@ -140,7 +178,7 @@ export default function Home() {
   // Tahmin & İnceleme Gönderimi
   async function handleVoteSubmit(productId: number) {
     if (!currentUser) {
-      alert('Tahmin yapabilmek için lütfen önce Google veya Cüzdan ile giriş yapın.');
+      setShowEmailModal(true);
       return;
     }
     if (!reviewText.trim() || reviewText.length < 15) {
@@ -170,7 +208,70 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen max-w-2xl mx-auto flex flex-col border-x border-slate-800/60 bg-[#060913] shadow-2xl">
+    <div className="min-h-screen max-w-2xl mx-auto flex flex-col border-x border-slate-800/60 bg-[#060913] shadow-2xl relative">
+      
+      {/* E-POSTA / MAGIC LINK MODAL PENCERESİ */}
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b1220] border border-slate-700/80 rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl text-center">
+            {magicLinkSent ? (
+              <div className="space-y-3 py-2">
+                <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-base text-white">Giriş Bağlantısı Gönderildi!</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  <strong className="text-amber-400">{emailInput}</strong> adresinize tek kullanımlık bir giriş linki gönderdik. E-postanızı açıp bağlantıya tıklayarak şifresiz giriş yapabilirsiniz.
+                </p>
+                <button
+                  onClick={() => { setShowEmailModal(false); setMagicLinkSent(false); }}
+                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl"
+                >
+                  Tamam
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="w-10 h-10 bg-amber-500/10 text-amber-400 rounded-xl flex items-center justify-center mx-auto">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Şifresiz Giriş Yap</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    E-posta adresinizi girin, size tek tıkla oturum açacağınız güvenli bir bağlantı gönderelim.
+                  </p>
+                </div>
+
+                <form onSubmit={handleSendMagicLink} className="space-y-3">
+                  <input
+                    type="email"
+                    required
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="ornek@gmail.com"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    type="submit"
+                    disabled={authLoading}
+                    className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl transition-all disabled:opacity-50"
+                  >
+                    {authLoading ? 'Gönderiliyor...' : 'Giriş Bağlantısı Gönder'}
+                  </button>
+                </form>
+
+                <button
+                  onClick={() => setShowEmailModal(false)}
+                  className="text-xs text-slate-500 hover:text-slate-300"
+                >
+                  Kapat
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ÜST GEZİNTİ VE PROFİL PANELİ */}
       <header className="p-4 border-b border-slate-800/80 bg-[#0a0f1d]/95 backdrop-blur sticky top-0 z-30 flex justify-between items-center">
         <div className="flex items-center gap-2">
@@ -202,10 +303,10 @@ export default function Home() {
         ) : (
           <div className="flex items-center gap-1.5">
             <button
-              onClick={handleGoogleLogin}
+              onClick={() => setShowEmailModal(true)}
               className="bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-all"
             >
-              <LogIn className="w-3.5 h-3.5" /> Google
+              <Mail className="w-3.5 h-3.5" /> Giriş Yap
             </button>
             <button
               onClick={handleWalletLogin}
@@ -217,7 +318,7 @@ export default function Home() {
         )}
       </header>
 
-      {/* PWA ANA EKRANA EKLE ÇUBUĞU (Mobil Ziyaretçiler İçin) */}
+      {/* PWA ANA EKRANA EKLE ÇUBUĞU */}
       {installPrompt && (
         <div className="bg-gradient-to-r from-amber-600 to-amber-700 p-2.5 px-4 flex justify-between items-center text-xs font-bold text-slate-950">
           <span className="flex items-center gap-1.5">
@@ -261,7 +362,7 @@ export default function Home() {
         {activeTab === 'radar' ? (
           <>
             <div className="bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl text-xs text-slate-300 leading-relaxed">
-              💡 <strong>Nasıl Çalışır?</strong> Her gün vitrine çıkan 3 ürünü inceleyin. <span className="text-emerald-400 font-bold">Bullish</span> veya <span className="text-rose-400 font-bold">Bearish</span> tahmininizi yapıp 2 cümlelik görüşünüzü yazın. Doğru çıkan tahminlerle gece yarısı havuzdan $ARGUS payı kazanın.
+              💡 <strong>Nasıl Çalışır?</strong> Her gün vitrine çıkan 3 ürünü inceleyin. <span className="text-emerald-400 font-bold">Bullish</span> veya <span className="text-rose-400 font-bold">Bearish</span> tahmininizi yapıp 2 cümlelik görüşünüzü yazın. Gece yarısı havuzdan $ARGUS payı kazanın.
             </div>
 
             {products.map((p) => {
