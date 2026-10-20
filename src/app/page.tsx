@@ -3,21 +3,24 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
-  ShieldCheck, 
+  Heart, 
+  MessageCircle, 
+  Send, 
+  Bookmark, 
+  MoreHorizontal, 
   TrendingUp, 
   TrendingDown, 
-  ExternalLink, 
-  Award, 
-  Sparkles, 
-  Send, 
-  Wallet, 
-  Mail, 
-  LogOut,
-  Download,
-  Flame,
-  Lock,
-  Layers,
-  CheckCircle2
+  ShieldCheck, 
+  Compass, 
+  PlusSquare, 
+  User, 
+  Home as HomeIcon,
+  Sparkles,
+  ExternalLink,
+  Award,
+  CheckCircle2,
+  Mail,
+  X
 } from 'lucide-react';
 
 interface Product {
@@ -29,219 +32,394 @@ interface Product {
   github_or_x_target: string;
   bullish_votes: number;
   bearish_votes: number;
-}
-
-interface UserProfile {
-  id: string;
-  email?: string;
-  full_name?: string;
-  wallet_address?: string;
-  reputation_score: number;
+  author_name?: string;
+  avatar_url?: string;
+  bg_gradient?: string;
 }
 
 export default function Home() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [sentiment, setSentiment] = useState<'bullish' | 'bearish'>('bullish');
+  const [activeTab, setActiveTab] = useState<'feed' | 'explore' | 'vote' | 'transparency' | 'profile'>('feed');
+  
+  // Oylama / Yorum Modal
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [reviewText, setReviewText] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [sentiment, setSentiment] = useState<'bullish' | 'bearish'>('bullish');
   const [submittedProducts, setSubmittedProducts] = useState<number[]>([]);
-  const [activeTab, setActiveTab] = useState<'radar' | 'transparency'>('radar');
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-
-  // Magic Link Giriş Durumları
+  
+  // Giriş Modal
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [emailInput, setEmailInput] = useState('');
-  const [showEmailModal, setShowEmailModal] = useState(false);
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [magicSent, setMagicSent] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
-    // 1. PWA Yükleme Yakalayıcısı
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    });
-
-    // 2. Oturum Kontrolü & Değişiklik Dinleyicisi
-    checkAuthSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        await syncUserProfile(session.user.id, session.user.email, session.user.user_metadata?.full_name);
-      } else {
-        setCurrentUser(null);
-      }
-    });
-
-    // 3. Ürünleri Çek
+    checkSession();
     loadProducts();
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
   }, []);
 
-  async function checkAuthSession() {
+  async function checkSession() {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
-      await syncUserProfile(session.user.id, session.user.email, session.user.user_metadata?.full_name);
-    }
-  }
-
-  async function syncUserProfile(authId: string, email?: string, fullName?: string, wallet?: string) {
-    const displayName = fullName || (email ? email.split('@')[0] : (wallet ? `${wallet.slice(0, 6)}...${wallet.slice(-4)}` : 'Anonim Küratör'));
-    
-    const { data } = await supabase
-      .from('users')
-      .upsert({
-        auth_id: authId,
-        email: email || null,
-        full_name: displayName,
-        wallet_address: wallet || null,
-        last_active: new Date().toISOString()
-      }, { onConflict: 'auth_id' })
-      .select('*')
-      .single();
-
-    if (data) {
-      setCurrentUser(data);
+      setCurrentUser(session.user);
     }
   }
 
   async function loadProducts() {
-    const { data } = await supabase
-      .from('products')
-      .select('*')
-      .eq('status', 'active');
-    if (data) setProducts(data);
+    const { data } = await supabase.from('products').select('*');
+    if (data && data.length > 0) {
+      // Instagram tarzı renk ve sahte yazar profilleriyle zenginleştirilmiş mock katmanı
+      const gradients = [
+        'from-blue-900/80 via-slate-900 to-black',
+        'from-purple-950/80 via-slate-900 to-black',
+        'from-emerald-950/80 via-slate-900 to-black'
+      ];
+      const enriched = data.map((p, idx) => ({
+        ...p,
+        author_name: idx === 0 ? 'vllm_project' : idx === 1 ? 'cursor_ai' : 'aerodrome_fi',
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${p.title}`,
+        bg_gradient: gradients[idx % gradients.length]
+      }));
+      setProducts(enriched);
+    }
   }
 
-  // MAGIC LINK İLE GİRİŞ FONKSİYONU
   async function handleSendMagicLink(e: React.FormEvent) {
     e.preventDefault();
-    if (!emailInput.trim() || !emailInput.includes('@')) {
-      alert('Lütfen geçerli bir e-posta adresi girin.');
-      return;
-    }
-
     setAuthLoading(true);
-    const redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
-    
     const { error } = await supabase.auth.signInWithOtp({
       email: emailInput.trim(),
-      options: {
-        emailRedirectTo: redirectUrl,
-      },
+      options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : '' }
     });
-
     setAuthLoading(false);
-
-    if (error) {
-      alert('Hata: ' + error.message);
-    } else {
-      setMagicLinkSent(true);
-    }
+    if (!error) setMagicSent(true);
+    else alert('Hata: ' + error.message);
   }
 
-  // Web3 Cüzdan ile Giriş
-  async function handleWalletLogin() {
-    if (typeof window !== 'undefined' && (window as any).ethereum) {
-      try {
-        const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
-        const wallet = accounts[0];
-        await syncUserProfile(wallet, undefined, undefined, wallet);
-      } catch (err) {
-        alert('Cüzdan bağlantısı reddedildi.');
-      }
-    } else {
-      alert('Tarayıcınızda Web3 cüzdanı bulunamadı. Lütfen E-posta ile giriş yapın.');
-    }
-  }
-
-  // Çıkış Yap
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    setCurrentUser(null);
-  }
-
-  // PWA Kurulum Butonu
-  function handleInstallApp() {
-    if (installPrompt) {
-      installPrompt.prompt();
-      installPrompt.userChoice.then((choiceResult: any) => {
-        if (choiceResult.outcome === 'accepted') setInstallPrompt(null);
-      });
-    }
-  }
-
-  // Tahmin & İnceleme Gönderimi
-  async function handleVoteSubmit(productId: number) {
+  async function handleReviewSubmit() {
     if (!currentUser) {
-      setShowEmailModal(true);
+      setShowAuthModal(true);
       return;
     }
     if (!reviewText.trim() || reviewText.length < 15) {
-      alert('Lütfen en az 15 karakterlik somut bir eleştiri/görüş yazın.');
+      alert('Lütfen en az 15 karakterlik somut bir eleştiri yazın.');
       return;
     }
 
-    setLoading(true);
-    const { error } = await supabase.from('reviews').insert({
-      user_id: currentUser.id,
-      product_id: productId,
-      sentiment,
-      review_text: reviewText,
-      points_awarded: 60
-    });
-
-    if (error) {
-      alert('Bu ürünü bugün zaten oyladınız!');
-    } else {
-      setSubmittedProducts([...submittedProducts, productId]);
-      setCurrentUser(prev => prev ? { ...prev, reputation_score: prev.reputation_score + 60 } : null);
-      setSelectedProductId(null);
+    if (selectedProduct) {
+      await supabase.from('reviews').insert({
+        user_id: currentUser.id,
+        product_id: selectedProduct.id,
+        sentiment,
+        review_text: reviewText,
+        points_awarded: 60
+      });
+      setSubmittedProducts([...submittedProducts, selectedProduct.id]);
+      setSelectedProduct(null);
       setReviewText('');
-      alert('Görüşünüz onaylandı! +60 Küratör XP cüzdanınıza işlendi.');
+      alert('İnceleme ve tahmininiz kaydedildi! +60 XP');
     }
-    setLoading(false);
   }
 
   return (
-    <div className="min-h-screen max-w-2xl mx-auto flex flex-col border-x border-slate-800/60 bg-[#060913] shadow-2xl relative">
+    <div className="w-full max-w-md mx-auto min-h-screen bg-black text-white flex flex-col font-sans select-none relative overflow-x-hidden border-x border-neutral-900">
       
-      {/* E-POSTA / MAGIC LINK MODAL PENCERESİ */}
-      {showEmailModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b1220] border border-slate-700/80 rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl text-center">
-            {magicLinkSent ? (
-              <div className="space-y-3 py-2">
-                <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-6 h-6" />
+      {/* ÜST BAR (INSTAGRAM LOGOSU & BİLDİRİM / PUAN) */}
+      <header className="h-12 px-4 flex items-center justify-between border-b border-neutral-900/80 sticky top-0 bg-black/90 backdrop-blur z-30">
+        <div className="flex items-center gap-1.5 cursor-pointer">
+          <span className="font-serif italic font-extrabold text-2xl tracking-tight bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-500 bg-clip-text text-transparent">
+            Argus
+          </span>
+          <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded-full ml-1">
+            Radar
+          </span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {currentUser ? (
+            <div className="flex items-center gap-1 bg-neutral-900 px-2.5 py-1 rounded-full border border-neutral-800 text-xs text-amber-400 font-bold">
+              <Award className="w-3.5 h-3.5" /> 160 XP
+            </div>
+          ) : (
+            <button 
+              onClick={() => setShowAuthModal(true)}
+              className="text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-black font-bold px-3 py-1 rounded-full shadow"
+            >
+              Giriş Yap
+            </button>
+          )}
+          <Heart className="w-6 h-6 text-white cursor-pointer active:scale-90 transition-transform" />
+        </div>
+      </header>
+
+      {/* HİKAYELER BARI (GÜNÜN 3 ÜRÜNÜ & LİDER KÜRATÖRLER) */}
+      <section className="py-2.5 px-3 border-b border-neutral-900 overflow-x-auto no-scrollbar flex gap-3.5 bg-neutral-950/40">
+        <div className="flex flex-col items-center gap-1 min-w-[62px]">
+          <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 cursor-pointer active:scale-95 transition-transform">
+            <div className="w-full h-full rounded-full bg-black p-[2px] flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-amber-400" />
+            </div>
+          </div>
+          <span className="text-[11px] text-neutral-300 truncate w-14 text-center">Günün 3'ü</span>
+        </div>
+
+        {products.map((p, idx) => (
+          <div 
+            key={p.id} 
+            onClick={() => setSelectedProduct(p)}
+            className="flex flex-col items-center gap-1 min-w-[62px] cursor-pointer active:scale-95 transition-transform"
+          >
+            <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-amber-400 to-emerald-400">
+              <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden">
+                <img src={p.avatar_url} alt={p.title} className="w-10 h-10 object-cover" />
+              </div>
+            </div>
+            <span className="text-[11px] text-neutral-400 truncate w-14 text-center">
+              {p.author_name}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      {/* ORTA ANA ALAN (INSTAGRAM REELS / FEED KARTLARI) */}
+      <main className="flex-1 pb-16">
+        {activeTab === 'feed' ? (
+          <div className="divide-y divide-neutral-900">
+            {products.map((p) => {
+              const isVoted = submittedProducts.includes(p.id);
+
+              return (
+                <article key={p.id} className="relative flex flex-col bg-neutral-950">
+                  {/* Kart Üst Bilgisi (Profil, İsim, Takip Butonu) */}
+                  <div className="p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-full p-[1.5px] bg-gradient-to-tr from-amber-400 to-rose-500">
+                        <div className="w-full h-full rounded-full bg-black overflow-hidden flex items-center justify-center">
+                          <img src={p.avatar_url} alt={p.title} className="w-7 h-7" />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold text-xs text-white">{p.author_name}</span>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 fill-blue-400/20" />
+                        </div>
+                        <p className="text-[10px] text-neutral-400">{p.title}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={p.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg flex items-center gap-1 border border-neutral-700"
+                      >
+                        İncele <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <MoreHorizontal className="w-5 h-5 text-neutral-400" />
+                    </div>
+                  </div>
+
+                  {/* Görsel / Canlı Vitrin Alanı (Reels Ekranı Hissi) */}
+                  <div className={`w-full aspect-[4/5] bg-gradient-to-b ${p.bg_gradient} relative p-6 flex flex-col justify-between overflow-hidden shadow-inner`}>
+                    
+                    {/* Arka Plan Dekoratif Parıltı */}
+                    <div className="absolute -top-10 -right-10 w-44 h-44 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                    {/* Ürün Rozeti */}
+                    <div className="flex justify-between items-start z-10">
+                      <span className="bg-black/60 backdrop-blur border border-amber-500/30 text-amber-300 text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                        ⚡ Günün Radarı #0{p.id}
+                      </span>
+                      <span className="bg-neutral-900/80 backdrop-blur text-neutral-300 text-[10px] px-2 py-0.5 rounded-md font-mono border border-neutral-800">
+                        Target: {p.github_or_x_target}
+                      </span>
+                    </div>
+
+                    {/* Merkez Başlık ve Açıklama */}
+                    <div className="z-10 space-y-2 text-left">
+                      <h2 className="text-2xl font-black tracking-tight text-white drop-shadow">
+                        {p.title}
+                      </h2>
+                      <p className="text-sm font-medium text-amber-200/90 drop-shadow-sm">
+                        {p.tagline}
+                      </p>
+                      <p className="text-xs text-neutral-300 line-clamp-3 leading-relaxed drop-shadow-sm">
+                        {p.description}
+                      </p>
+                    </div>
+
+                    {/* Hızlı Tahmin Butonları (Reels Altı Oylama) */}
+                    <div className="z-10 pt-4">
+                      {isVoted ? (
+                        <div className="w-full py-2.5 bg-emerald-950/80 border border-emerald-600 text-emerald-400 text-xs font-bold rounded-xl text-center backdrop-blur">
+                          ✓ Tahmininiz Kaydedildi (+60 XP)
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setSelectedProduct(p); setSentiment('bullish'); }}
+                            className="flex-1 py-2.5 bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg backdrop-blur transition-all"
+                          >
+                            <TrendingUp className="w-4 h-4" /> Bullish (Tutar)
+                          </button>
+                          <button
+                            onClick={() => { setSelectedProduct(p); setSentiment('bearish'); }}
+                            className="flex-1 py-2.5 bg-rose-600/90 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg backdrop-blur transition-all"
+                          >
+                            <TrendingDown className="w-4 h-4" /> Bearish (Batar)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Kart Altı Etkileşim İkonları (Like, Comment, Share, Bookmark) */}
+                  <div className="px-4 py-3 flex items-center justify-between text-neutral-300">
+                    <div className="flex items-center gap-4">
+                      <Heart className="w-6 h-6 hover:text-rose-500 active:scale-125 transition-all cursor-pointer" />
+                      <MessageCircle 
+                        onClick={() => setSelectedProduct(p)}
+                        className="w-6 h-6 hover:text-amber-400 active:scale-125 transition-all cursor-pointer" 
+                      />
+                      <Send className="w-6 h-6 hover:text-blue-400 active:scale-125 transition-all cursor-pointer" />
+                    </div>
+                    <Bookmark className="w-6 h-6 hover:text-amber-400 active:scale-125 transition-all cursor-pointer" />
+                  </div>
+
+                  {/* İstatistik ve Yorum Önizlemesi */}
+                  <div className="px-4 pb-3 space-y-1 text-xs">
+                    <p className="font-bold text-white">1.482 Küratör Oyladı</p>
+                    <p className="text-neutral-400">
+                      <strong className="text-neutral-200">argus_curator:</strong> UI performansı inanılmaz, kesinlikle 7 günde hedefini geçer.
+                    </p>
+                    <button 
+                      onClick={() => setSelectedProduct(p)}
+                      className="text-neutral-500 text-[11px] pt-0.5 hover:underline"
+                    >
+                      Tüm incelemeleri gör ve görüş yaz...
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : activeTab === 'transparency' ? (
+          /* ŞEFFAFLIK VE HAZİNE SAYFASI */
+          <div className="p-4 space-y-4">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3">
+              <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" /> Şeffaflık & Hazine (Base On-Chain)
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between p-2 rounded-lg bg-black border border-neutral-800">
+                  <span className="text-neutral-400">Toplam Token Arzı:</span>
+                  <span className="font-mono font-bold">10.000.000.000 ARGUS</span>
                 </div>
-                <h3 className="font-bold text-base text-white">Giriş Bağlantısı Gönderildi!</h3>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  <strong className="text-amber-400">{emailInput}</strong> adresinize tek kullanımlık bir giriş linki gönderdik. E-postanızı açıp bağlantıya tıklayarak şifresiz giriş yapabilirsiniz.
+                <div className="flex justify-between p-2 rounded-lg bg-black border border-neutral-800">
+                  <span className="text-neutral-400">Kurucu Payı:</span>
+                  <span className="font-mono text-emerald-400">2B (12 Ay Kilitli)</span>
+                </div>
+                <div className="flex justify-between p-2 rounded-lg bg-black border border-neutral-800">
+                  <span className="text-neutral-400">DEX Likiditesi:</span>
+                  <span className="font-mono text-amber-400">2.500$ USDC + 2B ARGUS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-neutral-500 text-xs">Bu bölüm hazırlanıyor...</div>
+        )}
+      </main>
+
+      {/* GÖRÜŞ VE İNCELEME YAZMA MODAL (INSTAGRAM YORUM ARAYÜZÜ) */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-neutral-900 border-t sm:border border-neutral-800 rounded-t-3xl sm:rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-neutral-800 pb-3">
+              <div>
+                <h3 className="font-bold text-sm text-white">İncele & Tahmin Et</h3>
+                <p className="text-xs text-amber-400">{selectedProduct.title}</p>
+              </div>
+              <button 
+                onClick={() => setSelectedProduct(null)}
+                className="p-1 rounded-full bg-neutral-800 text-neutral-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSentiment('bullish')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
+                  sentiment === 'bullish'
+                    ? 'bg-emerald-600 text-white border-emerald-500'
+                    : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                }`}
+              >
+                <TrendingUp className="w-4 h-4" /> Bullish (Tutar)
+              </button>
+              <button
+                onClick={() => setSentiment('bearish')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
+                  sentiment === 'bearish'
+                    ? 'bg-rose-600 text-white border-rose-500'
+                    : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                }`}
+              >
+                <TrendingDown className="w-4 h-4" /> Bearish (Batar)
+              </button>
+            </div>
+
+            <textarea
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              placeholder="Neden bu görüştesin? Ürünün en güçlü veya zayıf yanı nedir? (En az 15, maks 280 karakter)"
+              rows={3}
+              maxLength={280}
+              className="w-full bg-black border border-neutral-700 rounded-xl p-3 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+            />
+
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-[10px] text-neutral-500">{reviewText.length}/280</span>
+              <button
+                onClick={handleReviewSubmit}
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl flex items-center gap-1.5"
+              >
+                <Send className="w-3.5 h-3.5" /> Görüşü Paylaş (+60 XP)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ŞİFRESİZ E-POSTA GİRİŞ MODAL */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 w-full max-w-sm space-y-4 text-center">
+            {magicSent ? (
+              <div className="space-y-3 py-2">
+                <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
+                <h3 className="font-bold text-base text-white">Giriş Linki Gönderildi!</h3>
+                <p className="text-xs text-neutral-300">
+                  <strong className="text-amber-400">{emailInput}</strong> adresinize gelen bağlantıya tıklayarak şifresiz giriş yapabilirsiniz.
                 </p>
                 <button
-                  onClick={() => { setShowEmailModal(false); setMagicLinkSent(false); }}
-                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl"
+                  onClick={() => { setShowAuthModal(false); setMagicSent(false); }}
+                  className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-xs font-bold rounded-xl"
                 >
                   Tamam
                 </button>
               </div>
             ) : (
               <>
-                <div className="w-10 h-10 bg-amber-500/10 text-amber-400 rounded-xl flex items-center justify-center mx-auto">
-                  <Mail className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-white">Şifresiz Giriş Yap</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    E-posta adresinizi girin, size tek tıkla oturum açacağınız güvenli bir bağlantı gönderelim.
-                  </p>
-                </div>
-
+                <Mail className="w-8 h-8 text-amber-400 mx-auto" />
+                <h3 className="font-bold text-base text-white">Argus'a Giriş Yap</h3>
+                <p className="text-xs text-neutral-400">
+                  E-postanızı girin, tek tıkla şifresiz giriş linki gönderelim.
+                </p>
                 <form onSubmit={handleSendMagicLink} className="space-y-3">
                   <input
                     type="email"
@@ -249,264 +427,79 @@ export default function Home() {
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
                     placeholder="ornek@gmail.com"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                    className="w-full bg-black border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
                   />
                   <button
                     type="submit"
                     disabled={authLoading}
-                    className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl transition-all disabled:opacity-50"
+                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl disabled:opacity-50"
                   >
                     {authLoading ? 'Gönderiliyor...' : 'Giriş Bağlantısı Gönder'}
                   </button>
                 </form>
-
-                <button
-                  onClick={() => setShowEmailModal(false)}
-                  className="text-xs text-slate-500 hover:text-slate-300"
-                >
-                  Kapat
-                </button>
+                <button onClick={() => setShowAuthModal(false)} className="text-xs text-neutral-500">Kapat</button>
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* ÜST GEZİNTİ VE PROFİL PANELİ */}
-      <header className="p-4 border-b border-slate-800/80 bg-[#0a0f1d]/95 backdrop-blur sticky top-0 z-30 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-amber-400" />
-          </div>
-          <div>
-            <h1 className="text-sm font-extrabold tracking-wide text-white uppercase flex items-center gap-1.5">
-              ARGUS PROTOCOL
-            </h1>
-            <p className="text-[10px] text-amber-400 font-medium">Proof-of-Taste & AI Oracle</p>
-          </div>
-        </div>
-
-        {currentUser ? (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full">
-              <Award className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-xs font-bold text-amber-300">{currentUser.reputation_score} XP</span>
-            </div>
-            <button 
-              onClick={handleLogout}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
-              title="Çıkış Yap"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setShowEmailModal(true)}
-              className="bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-all"
-            >
-              <Mail className="w-3.5 h-3.5" /> Giriş Yap
-            </button>
-            <button
-              onClick={handleWalletLogin}
-              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-all"
-            >
-              <Wallet className="w-3.5 h-3.5" /> Cüzdan
-            </button>
-          </div>
-        )}
-      </header>
-
-      {/* PWA ANA EKRANA EKLE ÇUBUĞU */}
-      {installPrompt && (
-        <div className="bg-gradient-to-r from-amber-600 to-amber-700 p-2.5 px-4 flex justify-between items-center text-xs font-bold text-slate-950">
-          <span className="flex items-center gap-1.5">
-            <Download className="w-4 h-4" /> Argus'u telefonunun ana ekranına indir!
-          </span>
-          <button
-            onClick={handleInstallApp}
-            className="bg-slate-950 text-amber-400 text-[11px] px-3 py-1 rounded-md"
-          >
-            Yükle
-          </button>
-        </div>
-      )}
-
-      {/* SEKMELER */}
-      <div className="flex border-b border-slate-800/80 bg-[#070c18] text-xs font-semibold px-4 pt-2">
-        <button
-          onClick={() => setActiveTab('radar')}
-          className={`pb-2.5 px-4 flex items-center gap-1.5 ${
-            activeTab === 'radar' 
-              ? 'text-amber-400 border-b-2 border-amber-400' 
-              : 'text-slate-400 hover:text-slate-200'
+      {/* ALT GEZİNTİ BARI (INSTAGRAM 5'Lİ BUTONLAR) */}
+      <nav className="h-14 bg-black border-t border-neutral-900 fixed bottom-0 left-0 right-0 max-w-md mx-auto flex items-center justify-around z-40 px-2">
+        {/* 1. Buton: Ana Sayfa / Akış */}
+        <button 
+          onClick={() => setActiveTab('feed')}
+          className={`flex flex-col items-center justify-center p-1 transition-colors ${
+            activeTab === 'feed' ? 'text-white' : 'text-neutral-500'
           }`}
         >
-          <Layers className="w-3.5 h-3.5" /> Günün Radarı (3 Ürün)
+          <HomeIcon className="w-6 h-6" />
         </button>
-        <button
+
+        {/* 2. Buton: Keşfet */}
+        <button 
+          onClick={() => setActiveTab('explore')}
+          className={`flex flex-col items-center justify-center p-1 transition-colors ${
+            activeTab === 'explore' ? 'text-white' : 'text-neutral-500'
+          }`}
+        >
+          <Compass className="w-6 h-6" />
+        </button>
+
+        {/* 3. Buton: Oyla / Yeni Görev (+) */}
+        <button 
+          onClick={() => {
+            if (products.length > 0) setSelectedProduct(products[0]);
+          }}
+          className="flex flex-col items-center justify-center p-1 text-neutral-400 hover:text-white"
+        >
+          <PlusSquare className="w-6 h-6" />
+        </button>
+
+        {/* 4. Buton: Şeffaflık / Hazine */}
+        <button 
           onClick={() => setActiveTab('transparency')}
-          className={`pb-2.5 px-4 flex items-center gap-1.5 ${
-            activeTab === 'transparency' 
-              ? 'text-amber-400 border-b-2 border-amber-400' 
-              : 'text-slate-400 hover:text-slate-200'
+          className={`flex flex-col items-center justify-center p-1 transition-colors ${
+            activeTab === 'transparency' ? 'text-emerald-400' : 'text-neutral-500'
           }`}
         >
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Şeffaflık Paneli
+          <ShieldCheck className="w-6 h-6" />
         </button>
-      </div>
 
-      {/* ANA İÇERİK */}
-      <main className="p-4 flex-1 space-y-4">
-        {activeTab === 'radar' ? (
-          <>
-            <div className="bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl text-xs text-slate-300 leading-relaxed">
-              💡 <strong>Nasıl Çalışır?</strong> Her gün vitrine çıkan 3 ürünü inceleyin. <span className="text-emerald-400 font-bold">Bullish</span> veya <span className="text-rose-400 font-bold">Bearish</span> tahmininizi yapıp 2 cümlelik görüşünüzü yazın. Gece yarısı havuzdan $ARGUS payı kazanın.
-            </div>
+        {/* 5. Buton: Profil */}
+        <button 
+          onClick={() => {
+            if (!currentUser) setShowAuthModal(true);
+            else setActiveTab('profile');
+          }}
+          className={`flex flex-col items-center justify-center p-1 transition-colors ${
+            activeTab === 'profile' ? 'text-white' : 'text-neutral-500'
+          }`}
+        >
+          <User className="w-6 h-6" />
+        </button>
+      </nav>
 
-            {products.map((p) => {
-              const isVoted = submittedProducts.includes(p.id);
-              const isSelected = selectedProductId === p.id;
-
-              return (
-                <div key={p.id} className="bg-[#0b1220] border border-slate-800/90 rounded-2xl p-4 shadow-xl space-y-3">
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <h3 className="font-bold text-base text-white tracking-tight">{p.title}</h3>
-                      <p className="text-xs text-amber-400/90 font-medium">{p.tagline}</p>
-                    </div>
-                    <a
-                      href={p.link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                      title="Projeyi Ziyaret Et"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </div>
-
-                  <p className="text-xs text-slate-300 leading-relaxed">{p.description}</p>
-
-                  <div className="bg-slate-950/70 p-2.5 rounded-xl text-[11px] text-slate-400 border border-slate-800 flex justify-between items-center">
-                    <span>🎯 7 Günlük Başarı Hedefi:</span>
-                    <strong className="text-amber-300 font-mono">{p.github_or_x_target}</strong>
-                  </div>
-
-                  {isVoted ? (
-                    <div className="w-full py-2.5 bg-emerald-950/40 border border-emerald-800/60 text-emerald-400 text-xs font-bold rounded-xl text-center">
-                      ✓ Bugün Oylandı (+60 XP Eklendi)
-                    </div>
-                  ) : isSelected ? (
-                    <div className="space-y-3 pt-3 border-t border-slate-800">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setSentiment('bullish')}
-                          className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
-                            sentiment === 'bullish'
-                              ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/40'
-                              : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'
-                          }`}
-                        >
-                          <TrendingUp className="w-3.5 h-3.5" /> Bullish (Tutar)
-                        </button>
-                        <button
-                          onClick={() => setSentiment('bearish')}
-                          className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
-                            sentiment === 'bearish'
-                              ? 'bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-900/40'
-                              : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'
-                          }`}
-                        >
-                          <TrendingDown className="w-3.5 h-3.5" /> Bearish (Batar)
-                        </button>
-                      </div>
-
-                      <textarea
-                        value={reviewText}
-                        onChange={(e) => setReviewText(e.target.value)}
-                        placeholder="Neden bu kanaattesin? Ürünün en güçlü veya en zayıf yanı nedir? (En az 15, maks 280 karakter)"
-                        maxLength={280}
-                        rows={3}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 transition-colors"
-                      />
-
-                      <div className="flex justify-between items-center pt-1">
-                        <span className="text-[10px] text-slate-500 font-mono">{reviewText.length}/280</span>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setSelectedProductId(null)}
-                            className="text-xs px-3 py-1.5 rounded-lg text-slate-400 hover:text-white"
-                          >
-                            Vazgeç
-                          </button>
-                          <button
-                            onClick={() => handleVoteSubmit(p.id)}
-                            disabled={loading}
-                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-4 py-1.5 rounded-xl flex items-center gap-1.5 shadow-md transition-all"
-                          >
-                            <Send className="w-3 h-3" /> Gönder
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setSelectedProductId(p.id)}
-                      className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all"
-                    >
-                      İncele & Tahmin Et (+60 Puan)
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </>
-        ) : (
-          /* ŞEFFAFLIK VE HAZİNE PANELİ */
-          <div className="space-y-4">
-            <div className="bg-[#0b1220] border border-slate-800 p-4 rounded-2xl space-y-3">
-              <h2 className="text-sm font-bold text-white flex items-center gap-1.5">
-                <Lock className="w-4 h-4 text-emerald-400" /> Zincir Üstü Hazine & Kilitler (Base Network)
-              </h2>
-
-              <div className="space-y-2.5 pt-2">
-                <div className="flex justify-between items-center text-xs p-2 rounded-lg bg-slate-950/60 border border-slate-850">
-                  <span className="text-slate-400">Toplam Token Arzı</span>
-                  <span className="font-bold text-white font-mono">10.000.000.000 ARGUS</span>
-                </div>
-                <div className="flex justify-between items-center text-xs p-2 rounded-lg bg-slate-950/60 border border-slate-850">
-                  <span className="text-slate-400">Kurucu Payı (Vesting)</span>
-                  <span className="font-bold text-emerald-400 font-mono">2.000.000.000 (%20 - 12 Ay Kilitli)</span>
-                </div>
-                <div className="flex justify-between items-center text-xs p-2 rounded-lg bg-slate-950/60 border border-slate-850">
-                  <span className="text-slate-400">DEX Likidite Havuzu</span>
-                  <span className="font-bold text-amber-400 font-mono">2.500$ USDC + 2B ARGUS</span>
-                </div>
-                <div className="flex justify-between items-center text-xs p-2 rounded-lg bg-slate-950/60 border border-slate-850">
-                  <span className="text-slate-400">LP Kilit Güvenliği</span>
-                  <span className="font-bold text-emerald-400 font-mono">365 Gün Kilitli (Team Finance)</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-[#0b1220] border border-slate-800 p-4 rounded-2xl space-y-2">
-              <h3 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                <Flame className="w-4 h-4 text-rose-400" /> Buy-Back & Burn Protokolü
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Geliştiricilerin ödediği B2B listeleme gelirlerinin %25'i her ay piyasadan $ARGUS satın alınıp yakılmak için kullanılır.
-              </p>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* ALT BİLGİ */}
-      <footer className="p-4 border-t border-slate-850 bg-[#070b15] text-center text-[11px] text-slate-500">
-        Argus Protocol © 2026 • Autonomous Review & Global User Sentiment
-      </footer>
     </div>
   );
 }
