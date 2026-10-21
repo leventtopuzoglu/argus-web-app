@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from '../lib/supabase';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   Heart, 
@@ -435,7 +435,6 @@ export default function Home() {
             </div>
           </div>
         ) : (
-          /* PROFİL SAYFASI */
           <div className="p-6 text-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mx-auto text-amber-400 shadow-lg">
               <User className="w-8 h-8" />
