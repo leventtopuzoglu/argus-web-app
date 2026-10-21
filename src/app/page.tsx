@@ -23,7 +23,8 @@ import {
   X,
   Trash2,
   FileText,
-  AlertTriangle
+  AlertTriangle,
+  MailCheck
 } from 'lucide-react';
 
 interface Product {
@@ -52,12 +53,16 @@ export default function Home() {
   const [submittedProducts, setSubmittedProducts] = useState<number[]>([]);
   const [submittingReview, setSubmittingReview] = useState(false);
   
+  // Kimlik Doğrulama State'leri
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [emailInput, setEmailInput] = useState('');
+  const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [signupSuccessEmail, setSignupSuccessEmail] = useState<string | null>(null);
+
   const [showTermsModal, setShowTermsModal] = useState(false);
 
   useEffect(() => {
@@ -168,14 +173,23 @@ export default function Home() {
   async function handleEmailAuth(e: React.FormEvent) {
     e.preventDefault();
     const emailClean = emailInput.trim();
+    const usernameClean = usernameInput.trim().toLowerCase();
 
     if (!emailClean || passwordInput.length < 6) {
       alert('Lütfen geçerli bir e-posta ve en az 6 haneli şifre girin.');
       return;
     }
 
-    // Şifre Doğrulama Kontrolü (Sadece Kayıt Olurken)
+    // Kayıt Modu Kontrolleri
     if (authMode === 'signup') {
+      if (!usernameClean || usernameClean.length < 3) {
+        alert('Lütfen en az 3 karakterden oluşan bir kullanıcı adı belirleyin.');
+        return;
+      }
+      if (!/^[a-z0-9_]+$/.test(usernameClean)) {
+        alert('Kullanıcı adı yalnızca küçük harfler, rakamlar ve alt çizgi (_) içerebilir.');
+        return;
+      }
       if (passwordInput !== confirmPasswordInput) {
         alert('Girdiğiniz şifreler birbiriyle eşleşmiyor! Lütfen her iki alana da aynı şifreyi yazın.');
         return;
@@ -196,28 +210,35 @@ export default function Home() {
       } else {
         setCurrentUser(data.user);
         setShowAuthModal(false);
-        setEmailInput('');
-        setPasswordInput('');
-        setConfirmPasswordInput('');
+        resetAuthForm();
       }
     } else {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email: emailClean,
         password: passwordInput,
+        options: {
+          data: {
+            username: usernameClean,
+            full_name: usernameClean
+          }
+        }
       });
 
       setAuthLoading(false);
       if (error) {
         alert('Kayıt hatası: ' + error.message);
       } else {
-        setCurrentUser(data.user);
-        setShowAuthModal(false);
-        setEmailInput('');
-        setPasswordInput('');
-        setConfirmPasswordInput('');
-        alert('Hesabınız başarıyla oluşturuldu ve oturum açıldı!');
+        setSignupSuccessEmail(emailClean);
+        resetAuthForm();
       }
     }
+  }
+
+  function resetAuthForm() {
+    setEmailInput('');
+    setUsernameInput('');
+    setPasswordInput('');
+    setConfirmPasswordInput('');
   }
 
   async function handleWalletLogin() {
@@ -275,7 +296,7 @@ export default function Home() {
             </div>
           ) : (
             <button 
-              onClick={() => { setAuthMode('signin'); setShowAuthModal(true); }}
+              onClick={() => { setAuthMode('signin'); setSignupSuccessEmail(null); setShowAuthModal(true); }}
               className="text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-black font-bold px-3.5 py-1.5 rounded-full shadow active:scale-95 transition-transform"
             >
               Giriş Yap
@@ -454,7 +475,11 @@ export default function Home() {
               <User className="w-8 h-8" />
             </div>
             <div>
-              <h3 className="font-bold text-base">{currentUser ? (currentUser.email || 'Küratör') : 'Misafir Kullanıcı'}</h3>
+              <h3 className="font-bold text-base">
+                {currentUser 
+                  ? (currentUser.user_metadata?.username ? `@${currentUser.user_metadata.username}` : currentUser.email) 
+                  : 'Misafir Kullanıcı'}
+              </h3>
               <p className="text-xs text-amber-400 font-medium">Toplam İtibar: {userScore} XP</p>
             </div>
 
@@ -475,7 +500,7 @@ export default function Home() {
               </div>
             ) : (
               <button 
-                onClick={() => { setAuthMode('signup'); setShowAuthModal(true); }}
+                onClick={() => { setAuthMode('signup'); setSignupSuccessEmail(null); setShowAuthModal(true); }}
                 className="w-full py-2.5 bg-amber-500 text-black font-bold text-xs rounded-xl shadow"
               >
                 Giriş Yap / Kayıt Ol
@@ -566,104 +591,163 @@ export default function Home() {
         </div>
       )}
 
-      {/* ŞİFRELİ GİRİŞ / KAYIT MODALI (ŞİFRE TEKRARI EKLENDİ) */}
+      {/* ŞİFRELİ GİRİŞ / KAYIT / DOĞRULAMA MODALI */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 w-full max-w-sm space-y-4 text-center">
-            <div className="w-10 h-10 bg-amber-500/10 text-amber-400 rounded-xl flex items-center justify-center mx-auto">
-              <Key className="w-5 h-5" />
-            </div>
+            
+            {/* 1. DURUM: KAYIT BAŞARILI VE E-POSTA DOĞRULAMA BEKLENİYOR */}
+            {signupSuccessEmail ? (
+              <div className="space-y-4 py-2">
+                <div className="w-14 h-14 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20">
+                  <MailCheck className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Doğrulama Postası Gönderildi!</h3>
+                  <p className="text-xs text-neutral-300 mt-2 leading-relaxed">
+                    Küratör hesabınız oluşturuldu. Hesabınızı aktifleştirmek için <strong className="text-amber-400 font-semibold">{signupSuccessEmail}</strong> adresinize gönderilen doğrulama bağlantısına tıklayın.
+                  </p>
+                  <p className="text-[11px] text-neutral-500 mt-2">
+                    (Gelen kutunuzda göremiyorsanız Spam / Gereksiz klasörünü kontrol edin.)
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSignupSuccessEmail(null);
+                    setAuthMode('signin');
+                  }}
+                  className="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs rounded-xl transition-all"
+                >
+                  Giriş Ekranına Dön
+                </button>
+              </div>
+            ) : (
+              /* 2. DURUM: GİRİŞ YAP VEYA KAYIT OL FORMU */
+              <>
+                <div className="w-10 h-10 bg-amber-500/10 text-amber-400 rounded-xl flex items-center justify-center mx-auto">
+                  <Key className="w-5 h-5" />
+                </div>
 
-            <div>
-              <h3 className="font-bold text-base text-white">
-                {authMode === 'signin' ? 'Argus Hesabına Giriş Yap' : 'Yeni Küratör Hesabı Aç'}
-              </h3>
-              <p className="text-xs text-neutral-400 mt-1">
-                {authMode === 'signin' 
-                  ? 'E-posta ve şifrenizle giriş yapın.' 
-                  : 'Bilgilerinizi ve şifrenizi belirleyerek anında kaydolun.'}
-              </p>
-            </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">
+                    {authMode === 'signin' ? 'Argus Hesabına Giriş Yap' : 'Yeni Küratör Hesabı Aç'}
+                  </h3>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    {authMode === 'signin' 
+                      ? 'E-posta ve şifrenizle giriş yapın.' 
+                      : 'Kullanıcı adınızı, e-postanızı ve şifrenizi belirleyin.'}
+                  </p>
+                </div>
 
-            <form onSubmit={handleEmailAuth} className="space-y-3">
-              <input
-                type="email"
-                required
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                placeholder="E-posta adresiniz"
-                className="w-full bg-black border border-neutral-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
-              />
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="Şifreniz (En az 6 karakter)"
-                className="w-full bg-black border border-neutral-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
-              />
+                <form onSubmit={handleEmailAuth} className="space-y-3 text-left">
+                  {/* E-posta */}
+                  <div>
+                    <input
+                      type="email"
+                      required
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="E-posta adresiniz"
+                      className="w-full bg-black border border-neutral-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
 
-              {/* Sadece Kayıt Olurken Görünen Şifre Tekrar Alanı */}
-              {authMode === 'signup' && (
-                <div className="space-y-1 text-left">
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={confirmPasswordInput}
-                    onChange={(e) => setConfirmPasswordInput(e.target.value)}
-                    placeholder="Şifrenizi Tekrar Girin"
-                    className={`w-full bg-black border rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none ${
-                      confirmPasswordInput && confirmPasswordInput !== passwordInput 
-                        ? 'border-rose-500 focus:border-rose-500' 
-                        : confirmPasswordInput && confirmPasswordInput === passwordInput 
-                        ? 'border-emerald-500 focus:border-emerald-500' 
-                        : 'border-neutral-700 focus:border-amber-400'
-                    }`}
-                  />
-                  {confirmPasswordInput && confirmPasswordInput !== passwordInput && (
-                    <p className="text-[10px] text-rose-400 pl-1 font-medium">
-                      ⚠️ Şifreler eşleşmiyor! Lütfen kontrol edin.
-                    </p>
+                  {/* Sadece Kayıt Olurken: Kullanıcı Adı Oluştur */}
+                  {authMode === 'signup' && (
+                    <div className="space-y-1">
+                      <div className="relative flex items-center">
+                        <span className="absolute left-3 text-neutral-500 text-xs">@</span>
+                        <input
+                          type="text"
+                          required
+                          value={usernameInput}
+                          onChange={(e) => setUsernameInput(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                          placeholder="kullanici_adiniz"
+                          className="w-full bg-black border border-neutral-700 rounded-xl pl-7 pr-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                      <p className="text-[10px] text-neutral-500 pl-1">
+                        Küçük harfler, rakamlar ve alt çizgi (_) kullanılabilir.
+                      </p>
+                    </div>
                   )}
-                  {confirmPasswordInput && confirmPasswordInput === passwordInput && (
-                    <p className="text-[10px] text-emerald-400 pl-1 font-medium">
-                      ✓ Şifreler eşleşti.
-                    </p>
+
+                  {/* Şifre */}
+                  <div>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder={authMode === 'signup' ? 'Şifre oluştur (En az 6 karakter)' : 'Şifreniz'}
+                      className="w-full bg-black border border-neutral-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  {/* Sadece Kayıt Olurken: Şifre Tekrarı */}
+                  {authMode === 'signup' && (
+                    <div className="space-y-1">
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={confirmPasswordInput}
+                        onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                        placeholder="Şifrenizi Tekrar Girin"
+                        className={`w-full bg-black border rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none ${
+                          confirmPasswordInput && confirmPasswordInput !== passwordInput 
+                            ? 'border-rose-500 focus:border-rose-500' 
+                            : confirmPasswordInput && confirmPasswordInput === passwordInput 
+                            ? 'border-emerald-500 focus:border-emerald-500' 
+                            : 'border-neutral-700 focus:border-amber-400'
+                        }`}
+                      />
+                      {confirmPasswordInput && confirmPasswordInput !== passwordInput && (
+                        <p className="text-[10px] text-rose-400 pl-1 font-medium">
+                          ⚠️ Şifreler eşleşmiyor! Lütfen kontrol edin.
+                        </p>
+                      )}
+                      {confirmPasswordInput && confirmPasswordInput === passwordInput && (
+                        <p className="text-[10px] text-emerald-400 pl-1 font-medium">
+                          ✓ Şifreler eşleşti.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={authLoading}
+                    className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-black font-bold text-xs rounded-xl transition-all disabled:opacity-50 mt-2"
+                  >
+                    {authLoading ? 'İşleniyor...' : (authMode === 'signin' ? 'Giriş Yap' : 'Kayıt Ol')}
+                  </button>
+                </form>
+
+                <div className="flex justify-between items-center text-xs text-neutral-400 pt-1">
+                  {authMode === 'signin' ? (
+                    <span>Hesabınız yok mu? <button onClick={() => { setAuthMode('signup'); setConfirmPasswordInput(''); }} className="text-amber-400 font-bold hover:underline">Kayıt Ol</button></span>
+                  ) : (
+                    <span>Zaten hesabınız var mı? <button onClick={() => { setAuthMode('signin'); setConfirmPasswordInput(''); }} className="text-amber-400 font-bold hover:underline">Giriş Yap</button></span>
                   )}
                 </div>
-              )}
 
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-black font-bold text-xs rounded-xl transition-all disabled:opacity-50"
-              >
-                {authLoading ? 'İşleniyor...' : (authMode === 'signin' ? 'Giriş Yap' : 'Kayıt Ol')}
-              </button>
-            </form>
+                <div className="pt-2 border-t border-neutral-800">
+                  <button
+                    onClick={handleWalletLogin}
+                    className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5"
+                  >
+                    <Wallet className="w-3.5 h-3.5 text-amber-400" /> Web3 Cüzdan ile Bağlan
+                  </button>
+                </div>
 
-            <div className="flex justify-between items-center text-xs text-neutral-400 pt-1">
-              {authMode === 'signin' ? (
-                <span>Hesabınız yok mu? <button onClick={() => { setAuthMode('signup'); setConfirmPasswordInput(''); }} className="text-amber-400 font-bold hover:underline">Kayıt Ol</button></span>
-              ) : (
-                <span>Zaten hesabınız var mı? <button onClick={() => { setAuthMode('signin'); setConfirmPasswordInput(''); }} className="text-amber-400 font-bold hover:underline">Giriş Yap</button></span>
-              )}
-            </div>
+                <button onClick={() => setShowAuthModal(false)} className="text-xs text-neutral-500 hover:text-neutral-300">
+                  Kapat
+                </button>
+              </>
+            )}
 
-            <div className="pt-2 border-t border-neutral-800">
-              <button
-                onClick={handleWalletLogin}
-                className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5"
-              >
-                <Wallet className="w-3.5 h-3.5 text-amber-400" /> Web3 Cüzdan ile Bağlan
-              </button>
-            </div>
-
-            <button onClick={() => setShowAuthModal(false)} className="text-xs text-neutral-500 hover:text-neutral-300">
-              Kapat
-            </button>
           </div>
         </div>
       )}
